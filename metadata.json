@@ -1,6 +1,6 @@
 {
-  "name": "SIMOC-Riego",
-  "description": "SIMOC-Riego: Sistema de Monitoreo y Control de Riego. Vigilante de vibración y mantenimiento predictivo para bombas de riego agrícolas con celulares reciclados.",
+  "name": "BOMBAVIGIA",
+  "description": "BOMBAVIGIA: Vigilante de vibración y mantenimiento predictivo para bombas de riego agrícolas con celulares reciclados.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

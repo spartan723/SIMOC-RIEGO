@@ -273,7 +273,7 @@ private fun ReadingItemCard(
 
 private fun buildReport(pumpName: String, readings: List<VibrationReading>, alerts: List<VibrationReading>): String {
     val sb = StringBuilder()
-    sb.append("📊 REPORTE DE VIBRACIÓN SIMOC-RIEGO\n")
+    sb.append("📊 REPORTE DE VIBRACIÓN BOMBAVIGIA\n")
     sb.append("Equipo: $pumpName\n")
     sb.append("Fecha: ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())}\n")
     sb.append("Alertas registradas: ${alerts.size}\n\n")
@@ -282,6 +282,6 @@ private fun buildReport(pumpName: String, readings: List<VibrationReading>, aler
         val dt = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(it.timestamp))
         sb.append("[$dt] RMS: ${String.format("%.2f", it.rms)} m/s² | ${String.format("%.1f", it.peakFrequency)} Hz | ${it.status}\n")
     }
-    sb.append("\nGenerado por SIMOC-Riego - Sistema de Monitoreo y Control de Riego.")
+    sb.append("\nGenerado por BOMBAVIGIA - Vigilante de bombas de riego.")
     return sb.toString()
 }

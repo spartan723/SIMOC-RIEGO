@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "SIMOC-Riego"
+rootProject.name = "BOMBAVIGIA"
 
 include(":app")

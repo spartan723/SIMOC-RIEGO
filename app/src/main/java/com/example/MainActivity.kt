@@ -99,7 +99,7 @@ fun MainApp(viewModel: AgroViewModel = viewModel()) {
                 title = {
                     Column {
                         Text(
-                            text = "SIMOC-Riego",
+                            text = "BOMBAVIGIA",
                             style = MaterialTheme.typography.titleMedium.copy(
                                 fontWeight = FontWeight.Black,
                                 letterSpacing = 0.5.sp
@@ -107,7 +107,7 @@ fun MainApp(viewModel: AgroViewModel = viewModel()) {
                             color = Color.White
                         )
                         Text(
-                            text = currentPump?.name ?: "Sistema de Monitoreo y Control de Riego",
+                            text = currentPump?.name ?: "Vigilante de Bombas de Riego",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFFA7F3D0)
                         )

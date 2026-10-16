@@ -198,7 +198,7 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
 
         val message = when (t.status) {
             OperationalStatus.CRITICAL ->
-                "🚨 *ALERTA CRÍTICA SIMOC-RIEGO*\n" +
+                "🚨 *ALERTA CRÍTICA BOMBAVIGIA*\n" +
                 "💧 Bomba: $pumpName ($sector)\n" +
                 "⚠️ Diagnóstico: $faultDescription\n" +
                 "📊 Vibración actual: ${String.format("%.2f", t.rms)} m/s² (${String.format("%.1f", t.ratioToBaseline)}x sobre línea base).\n" +
@@ -206,20 +206,20 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
                 "🔧 Acción: Detener equipo y revisar rodamientos/anclaje antes de quemar bobinado."
 
             OperationalStatus.WARNING ->
-                "⚠️ *AVISO PREVENTIVO SIMOC-RIEGO*\n" +
+                "⚠️ *AVISO PREVENTIVO BOMBAVIGIA*\n" +
                 "💧 Bomba: $pumpName ($sector)\n" +
                 "🔍 Detección: Vibración elevada (${String.format("%.1f", t.ratioToBaseline)}x sobre normal).\n" +
                 "📊 RMS: ${String.format("%.2f", t.rms)} m/s² (Base: ${String.format("%.2f", sensorMonitor.baselineRms)} m/s²).\n" +
                 "🛠️ Acción: Programar engrase e inspección mecánica durante esta semana."
 
             OperationalStatus.NORMAL ->
-                "✅ *REPORTE DE ESTADO SIMOC-RIEGO*\n" +
+                "✅ *REPORTE DE ESTADO BOMBAVIGIA*\n" +
                 "💧 Bomba: $pumpName operando óptimamente.\n" +
                 "📊 Vibración: ${String.format("%.2f", t.rms)} m/s² | Salud: ${t.healthPercentage}%\n" +
                 "👍 Rodamientos y eje en condición estable (${t.isoClassification})."
 
             OperationalStatus.OFF ->
-                "ℹ️ *ESTADO DE REPOSO SIMOC-RIEGO*\n" +
+                "ℹ️ *ESTADO DE REPOSO BOMBAVIGIA*\n" +
                 "💧 Bomba: $pumpName se encuentra en reposo (apagada)."
         }
 
