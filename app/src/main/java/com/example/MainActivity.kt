@@ -193,9 +193,15 @@ fun MainApp(viewModel: AgroViewModel = viewModel()) {
     if (showSettingsDialog) {
         SettingsDialog(
             currentPump = currentPump,
+            telegramTokenInit = viewModel.telegramBotToken,
+            telegramChatInit = viewModel.telegramChatId,
+            webhookUrlInit = viewModel.webhookUrl,
+            autoSmsInit = viewModel.autoSmsEnabled,
+            autoBootInit = viewModel.autoBootEnabled,
+            onTestAutonomousDispatch = { viewModel.testAutonomousDispatch() },
             onDismiss = { showSettingsDialog = false },
-            onSave = { name, sector, phone, yellowThresh, redThresh ->
-                viewModel.updatePumpSettings(name, sector, phone, yellowThresh, redThresh)
+            onSave = { name, sector, phone, yellowThresh, redThresh, tgToken, tgChat, webhook, autoSms, autoBoot ->
+                viewModel.updatePumpSettings(name, sector, phone, yellowThresh, redThresh, tgToken, tgChat, webhook, autoSms, autoBoot)
             }
         )
     }

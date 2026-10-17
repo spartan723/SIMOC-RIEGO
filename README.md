@@ -73,3 +73,13 @@ flowchart TD
     B --> C[Celular Reciclado en Caja Estanca IP65]
     C -->|Sensor Acelerómetro| D[SIMOC-Riego App]
     D -->|Vía WhatsApp / SMS| E[Productor / Técnico Agrícola]
+```
+
+### ⚙️ 7. Mejoras de Grado Industrial Implementadas
+1. **Centinela 24/7 (Foreground Service + WakeLock):** Monitoreo ininterrumpido en segundo plano aunque la pantalla esté apagada.
+2. **Auto-Arranque tras Cortes de Luz (`BOOT_COMPLETED`):** Inicia automáticamente la vigilancia cuando el teléfono recibe corriente.
+3. **Modo Pantalla Negra OLED (Anti Burn-in):** Reduce el consumo energético y previene el desgaste de píxeles en la caseta.
+4. **Análisis Espectral FFT Real (0 - 50 Hz):** Detección de armónicos 1X RPM (giro) y 2X RPM (desalineación).
+5. **Detección Acústica de Cavitación (Micrófono 2 - 8 kHz):** Detección de implosión de burbujas en succión.
+6. **Alertas Autónomas (SMS sin intervención + Telegram Bot / Webhook):** Alerta a deshoras sin requerir interacción manual.
+7. **Diagnóstico Inteligente con Gemini AI:** Análisis de causa raíz y pasos de inspección física en terreno.

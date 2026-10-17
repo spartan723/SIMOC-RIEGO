@@ -99,7 +99,7 @@ fun DiagnosticsScreen(
                         val reportText = buildReport(pump?.name ?: "Bomba", readings, alerts)
                         val shareIntent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "Reporte Diagnóstico AgroVigía")
+                            putExtra(Intent.EXTRA_SUBJECT, "Reporte Diagnóstico BOMBAVIGIA")
                             putExtra(Intent.EXTRA_TEXT, reportText)
                         }
                         context.startActivity(Intent.createChooser(shareIntent, "Compartir Reporte"))

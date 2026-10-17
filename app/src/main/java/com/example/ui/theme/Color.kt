@@ -2,7 +2,7 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// AgroVigía Industrial & Eco Field Palette
+// BOMBAVIGIA Industrial & Eco Field Palette
 val EmeraldPrimaryLight = Color(0xFF1B5E20)
 val EmeraldOnPrimaryLight = Color(0xFFFFFFFF)
 val EmeraldContainerLight = Color(0xFFA7F3D0)

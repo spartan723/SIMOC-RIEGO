@@ -21,11 +21,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CompassCalibration
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Engineering
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.LinearScale
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Speed
@@ -63,6 +67,10 @@ import androidx.compose.ui.unit.sp
 import com.example.sensor.OperationalStatus
 import com.example.sensor.SimulationScenario
 import com.example.ui.AgroViewModel
+import com.example.ui.components.AcousticCavitationCard
+import com.example.ui.components.CentinelaScreenSaverOverlay
+import com.example.ui.components.FftSpectrumCanvas
+import com.example.ui.components.GeminiAiDiagnosticCard
 import com.example.ui.components.SemaforoIndicator
 import com.example.ui.components.WaveformCanvas
 import com.example.ui.theme.EmeraldPrimaryDark
@@ -82,13 +90,19 @@ fun SemaforoScreen(
     val calibrationState by viewModel.calibrationState.collectAsState()
     val keepAwake by viewModel.keepScreenAwake.collectAsState()
 
+    val isServiceRunning by viewModel.isServiceRunning.collectAsState()
+    val isScreenSaverActive by viewModel.isScreenSaverActive.collectAsState()
+    val isSamplingAudio by viewModel.isSamplingAudio.collectAsState()
+    val geminiDiagnostic by viewModel.geminiDiagnostic.collectAsState()
+    val isLoadingAi by viewModel.isLoadingAi.collectAsState()
+
     var showScenarioDialog by remember { mutableStateOf(false) }
     var showSendAlertDialog by remember { mutableStateOf(false) }
 
-    // Keep screen awake for permanent monitor on pump chassis/wall box
+    // Keep screen awake for kiosk mode
     DisposableEffect(keepAwake) {
         val window = (context as? Activity)?.window
-        if (keepAwake) {
+        if (keepAwake && !isScreenSaverActive) {
             window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -96,6 +110,17 @@ fun SemaforoScreen(
         onDispose {
             window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
+    }
+
+    // OLED Burn-in Protection Screen Saver Overlay
+    if (isScreenSaverActive) {
+        CentinelaScreenSaverOverlay(
+            status = telemetry.status,
+            currentRms = telemetry.rms,
+            healthPercentage = telemetry.healthPercentage,
+            onDismiss = { viewModel.setScreenSaverActive(false) }
+        )
+        return
     }
 
     LazyColumn(
@@ -164,34 +189,59 @@ fun SemaforoScreen(
             }
         }
 
-        // Active sensor status chip & Kiosk toggle
+        // Active Controls Bar: 24/7 Foreground Service, OLED Screen Saver, and Kiosk
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Sensor source badge
+                // 24/7 Foreground Service Toggle
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = if (currentScenario == SimulationScenario.REAL_SENSOR) Color(0xFF1B3825) else Color(0xFF382914),
-                    modifier = Modifier.clickable { showScenarioDialog = true }
+                    color = if (isServiceRunning) Color(0xFF1B3825) else Color(0xFF1E2923),
+                    modifier = Modifier.weight(1f).clickable { viewModel.toggleCentinelaService(context) }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
                     ) {
                         Box(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(
-                                    if (currentScenario == SimulationScenario.REAL_SENSOR) SemaforoGreen else SemaforoYellow
-                                )
+                                .background(if (isServiceRunning) SemaforoGreen else Color(0xFF64748B))
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (currentScenario == SimulationScenario.REAL_SENSOR) "Sensor: Acelerómetro Físico" else "Prueba: ${currentScenario.name.replace("SIM_", "")}",
+                            text = if (isServiceRunning) "24/7 Activo" else "24/7 OFF",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isServiceRunning) Color(0xFFE2E8F0) else Color(0xFF94A3B8),
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+
+                // OLED Burn-in Protection / Modo Centinela
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF1B2E24),
+                    modifier = Modifier.weight(1f).clickable { viewModel.setScreenSaverActive(true) }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DarkMode,
+                            contentDescription = "Modo Centinela Pantalla Negra",
+                            tint = Color(0xFFA7F3D0),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Modo OLED",
                             style = MaterialTheme.typography.labelSmall,
                             color = Color(0xFFE2E8F0),
                             fontWeight = FontWeight.SemiBold
@@ -199,27 +249,29 @@ fun SemaforoScreen(
                     }
                 }
 
-                // Kiosk Screen Awake Toggle
+                // Simulation / Physical sensor switch
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = if (keepAwake) Color(0xFF1B3825) else Color(0xFF1E2923),
-                    modifier = Modifier.clickable { viewModel.toggleKeepScreenAwake() }
+                    color = if (currentScenario == SimulationScenario.REAL_SENSOR) Color(0xFF1B3825) else Color(0xFF382914),
+                    modifier = Modifier.weight(1.2f).clickable { showScenarioDialog = true }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.WbSunny,
-                            contentDescription = "Pantalla siempre encendida",
-                            tint = if (keepAwake) SemaforoYellow else Color(0xFF94A3B8),
-                            modifier = Modifier.size(14.dp)
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (currentScenario == SimulationScenario.REAL_SENSOR) SemaforoGreen else SemaforoYellow)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = if (keepAwake) "Kiosco ON" else "Kiosco OFF",
+                            text = if (currentScenario == SimulationScenario.REAL_SENSOR) "Sensor Físico" else "Sim: ${currentScenario.name.replace("SIM_", "")}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (keepAwake) Color(0xFFE2E8F0) else Color(0xFF94A3B8)
+                            color = Color(0xFFE2E8F0),
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
@@ -279,6 +331,33 @@ fun SemaforoScreen(
                 samples = telemetry.waveformSamples,
                 status = telemetry.status,
                 isPumpRunning = telemetry.isPumpRunning
+            )
+        }
+
+        // Real Fast Fourier Transform (FFT) Frequency Spectrum
+        item {
+            FftSpectrumCanvas(
+                fftPoints = telemetry.fftSpectrum,
+                peakFrequencyHz = telemetry.peakFrequency,
+                status = telemetry.status
+            )
+        }
+
+        // Acoustic Cavitation & High-Frequency Noise Detector
+        item {
+            AcousticCavitationCard(
+                acoustic = telemetry.acousticTelemetry,
+                onSampleAudioClick = { viewModel.sampleAcousticNoise() },
+                isSamplingAudio = isSamplingAudio
+            )
+        }
+
+        // Gemini AI Root-Cause Diagnostic Card
+        item {
+            GeminiAiDiagnosticCard(
+                diagnosticResult = geminiDiagnostic,
+                isLoadingAi = isLoadingAi,
+                onRequestAiAnalysis = { viewModel.requestAiDiagnostic() }
             )
         }
 
@@ -438,7 +517,7 @@ fun SemaforoScreen(
         }
     }
 
-    // Simulation Scenarios Dialog (100% Water Pump Focused)
+    // Simulation Scenarios Dialog
     if (showScenarioDialog) {
         AlertDialog(
             onDismissRequest = { showScenarioDialog = false },
@@ -500,7 +579,7 @@ fun SemaforoScreen(
                     )
                     ScenarioOptionItem(
                         title = "Cavitación / Entrada de Aire",
-                        subtitle = "Burbujas implosionando en impulsor",
+                        subtitle = "Burbujas implosionando en impulsor y ruido acústico",
                         selected = currentScenario == SimulationScenario.SIM_PUMP_CAVITATION,
                         onClick = {
                             viewModel.setSimulationScenario(SimulationScenario.SIM_PUMP_CAVITATION)

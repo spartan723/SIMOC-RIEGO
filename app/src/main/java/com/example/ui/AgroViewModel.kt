@@ -7,16 +7,22 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.ai.GeminiDiagnosticEngine
+import com.example.ai.GeminiDiagnosticResult
+import com.example.alert.AutonomousAlertDispatcher
+import com.example.alert.DispatchResult
 import com.example.data.AgroDatabase
 import com.example.data.AgroRepository
 import com.example.data.model.MaintenanceRecord
 import com.example.data.model.PumpProfile
 import com.example.data.model.VibrationReading
+import com.example.sensor.AcousticCavitationDetector
 import com.example.sensor.HardwareSensorMonitor
 import com.example.sensor.LiveTelemetry
 import com.example.sensor.OperationalStatus
 import com.example.sensor.PumpFaultType
 import com.example.sensor.SimulationScenario
+import com.example.service.PumpCentinelaService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -34,6 +40,8 @@ data class CalibrationState(
 )
 
 class AgroViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val prefs = application.getSharedPreferences("simoc_centinela_prefs", Context.MODE_PRIVATE)
 
     private val database = AgroDatabase.getDatabase(application, viewModelScope)
     private val repository = AgroRepository(
@@ -69,6 +77,53 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
     private val _keepScreenAwake = MutableStateFlow(true)
     val keepScreenAwake: StateFlow<Boolean> = _keepScreenAwake.asStateFlow()
 
+    // 24/7 Foreground Service State
+    private val _isServiceRunning = MutableStateFlow(PumpCentinelaService.isServiceRunning)
+    val isServiceRunning: StateFlow<Boolean> = _isServiceRunning.asStateFlow()
+
+    // OLED Burn-in Protection / Modo Centinela
+    private val _isScreenSaverActive = MutableStateFlow(false)
+    val isScreenSaverActive: StateFlow<Boolean> = _isScreenSaverActive.asStateFlow()
+
+    // Acoustic Cavitation Detector
+    private val acousticDetector = AcousticCavitationDetector(application)
+    private val _isSamplingAudio = MutableStateFlow(false)
+    val isSamplingAudio: StateFlow<Boolean> = _isSamplingAudio.asStateFlow()
+
+    // Gemini AI Diagnostic
+    private val geminiEngine = GeminiDiagnosticEngine()
+    private val _geminiDiagnostic = MutableStateFlow<GeminiDiagnosticResult?>(null)
+    val geminiDiagnostic: StateFlow<GeminiDiagnosticResult?> = _geminiDiagnostic.asStateFlow()
+
+    private val _isLoadingAi = MutableStateFlow(false)
+    val isLoadingAi: StateFlow<Boolean> = _isLoadingAi.asStateFlow()
+
+    // Autonomous Alert Dispatcher
+    private val alertDispatcher = AutonomousAlertDispatcher(application)
+    private val _lastDispatchResults = MutableStateFlow<List<DispatchResult>>(emptyList())
+    val lastDispatchResults: StateFlow<List<DispatchResult>> = _lastDispatchResults.asStateFlow()
+
+    // Configurable Settings
+    var telegramBotToken: String
+        get() = prefs.getString("telegram_bot_token", "") ?: ""
+        set(value) = prefs.edit().putString("telegram_bot_token", value).apply()
+
+    var telegramChatId: String
+        get() = prefs.getString("telegram_chat_id", "") ?: ""
+        set(value) = prefs.edit().putString("telegram_chat_id", value).apply()
+
+    var webhookUrl: String
+        get() = prefs.getString("webhook_url", "") ?: ""
+        set(value) = prefs.edit().putString("webhook_url", value).apply()
+
+    var autoSmsEnabled: Boolean
+        get() = prefs.getBoolean("auto_sms_enabled", false)
+        set(value) = prefs.edit().putBoolean("auto_sms_enabled", value).apply()
+
+    var autoBootEnabled: Boolean
+        get() = prefs.getBoolean("auto_boot_enabled", true)
+        set(value) = prefs.edit().putBoolean("auto_boot_enabled", value).apply()
+
     private var simulationTickerJob: Job? = null
     private var autoSaveJob: Job? = null
 
@@ -87,7 +142,15 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Start periodic logging job (every 15s in foreground)
+        // Auto Wake-Up: If in Centinela screen saver and status changes to Warning or Critical, spring awake
+        viewModelScope.launch {
+            telemetry.collect { t ->
+                if (_isScreenSaverActive.value && (t.status == OperationalStatus.WARNING || t.status == OperationalStatus.CRITICAL)) {
+                    _isScreenSaverActive.value = false
+                }
+            }
+        }
+
         startAutoLogging()
     }
 
@@ -112,6 +175,68 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
         _keepScreenAwake.value = !_keepScreenAwake.value
     }
 
+    fun setScreenSaverActive(active: Boolean) {
+        _isScreenSaverActive.value = active
+    }
+
+    fun toggleCentinelaService(context: Context) {
+        if (_isServiceRunning.value) {
+            PumpCentinelaService.stopService(context)
+            _isServiceRunning.value = false
+            Toast.makeText(context, "Servicio Centinela 24/7 detenido", Toast.LENGTH_SHORT).show()
+        } else {
+            PumpCentinelaService.startService(context)
+            _isServiceRunning.value = true
+            Toast.makeText(context, "Servicio Centinela 24/7 activado en segundo plano", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun sampleAcousticNoise() {
+        if (_isSamplingAudio.value) return
+        viewModelScope.launch {
+            _isSamplingAudio.value = true
+            val isSimCavitation = _currentScenario.value == SimulationScenario.SIM_PUMP_CAVITATION
+            val acoustic = acousticDetector.sampleAcoustics(isSimCavitation)
+            sensorMonitor.updateAcousticTelemetry(acoustic)
+            _isSamplingAudio.value = false
+        }
+    }
+
+    fun requestAiDiagnostic(customApiKey: String? = null) {
+        if (_isLoadingAi.value) return
+        val pump = currentPump.value ?: return
+        val currentTelemetry = telemetry.value
+
+        viewModelScope.launch {
+            _isLoadingAi.value = true
+            val result = geminiEngine.analyzePumpHealth(pump, currentTelemetry, customApiKey)
+            _geminiDiagnostic.value = result
+            _isLoadingAi.value = false
+        }
+    }
+
+    fun testAutonomousDispatch() {
+        val pump = currentPump.value ?: return
+        val currentTelemetry = telemetry.value
+
+        viewModelScope.launch {
+            val results = alertDispatcher.dispatchAutonomousAlert(
+                pump = pump,
+                telemetry = currentTelemetry,
+                telegramBotToken = telegramBotToken,
+                telegramChatId = telegramChatId,
+                webhookUrl = webhookUrl,
+                forceDispatch = true
+            )
+            _lastDispatchResults.value = results
+            Toast.makeText(
+                getApplication(),
+                "Despacho ejecutado: ${results.count { it.isSuccess }} exitosos",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     fun startCalibration() {
         if (_calibrationState.value.isCalibrating) return
 
@@ -133,7 +258,6 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
-            // Average RMS of clean pump
             val avgRms = if (samples.isNotEmpty()) samples.average().toFloat().coerceAtLeast(0.4f) else 1.90f
             val avgFreq = if (telemetry.value.peakFrequency > 10f) telemetry.value.peakFrequency else 49.5f
 
@@ -259,8 +383,25 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun updatePumpSettings(name: String, sector: String, phone: String, yellowThresh: Float, redThresh: Float) {
+    fun updatePumpSettings(
+        name: String,
+        sector: String,
+        phone: String,
+        yellowThresh: Float,
+        redThresh: Float,
+        telegramToken: String = telegramBotToken,
+        telegramChat: String = telegramChatId,
+        customWebhook: String = webhookUrl,
+        enableAutoSms: Boolean = autoSmsEnabled,
+        enableAutoBoot: Boolean = autoBootEnabled
+    ) {
         val current = currentPump.value ?: return
+        telegramBotToken = telegramToken
+        telegramChatId = telegramChat
+        webhookUrl = customWebhook
+        autoSmsEnabled = enableAutoSms
+        autoBootEnabled = enableAutoBoot
+
         viewModelScope.launch {
             val updated = current.copy(
                 name = name,
@@ -272,7 +413,7 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
             repository.updatePump(updated)
             sensorMonitor.yellowThresholdMultiplier = yellowThresh
             sensorMonitor.redThresholdMultiplier = redThresh
-            Toast.makeText(getApplication(), "Configuración guardada", Toast.LENGTH_SHORT).show()
+            Toast.makeText(getApplication(), "Configuración industrial guardada", Toast.LENGTH_SHORT).show()
         }
     }
 

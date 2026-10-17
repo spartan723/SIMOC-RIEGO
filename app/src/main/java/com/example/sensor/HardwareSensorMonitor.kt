@@ -58,6 +58,8 @@ data class LiveTelemetry(
     val rawZ: Float = 9.8f,
     val dynamicMagnitude: Float = 0f,
     val waveformSamples: List<Float> = emptyList(),
+    val fftSpectrum: List<FftPoint> = emptyList(),
+    val acousticTelemetry: AcousticTelemetry = AcousticTelemetry(),
     val isHardwareSensorAvailable: Boolean = true
 )
 
@@ -368,6 +370,9 @@ class HardwareSensorMonitor(private val context: Context) : SensorEventListener 
             }
         }
 
+        // Compute real Fast Fourier Transform (FFT) on 64-sample buffer
+        val fftPoints = FftEngine.computeFft(dynamicBuffer, 100f)
+
         _telemetry.value = LiveTelemetry(
             rms = rms,
             peakFrequency = if (isRunning) peakFreq else 0f,
@@ -384,8 +389,14 @@ class HardwareSensorMonitor(private val context: Context) : SensorEventListener 
             rawZ = rawZ,
             dynamicMagnitude = dynMag,
             waveformSamples = samples,
+            fftSpectrum = fftPoints,
+            acousticTelemetry = _telemetry.value.acousticTelemetry,
             isHardwareSensorAvailable = accelerometer != null
         )
+    }
+
+    fun updateAcousticTelemetry(acoustic: AcousticTelemetry) {
+        _telemetry.value = _telemetry.value.copy(acousticTelemetry = acoustic)
     }
 
     private fun triggerHapticWarning() {
