@@ -51,7 +51,7 @@ fun WaveformCanvas(
 ) {
     val waveColor = when (status) {
         OperationalStatus.OFF -> SemaforoOff
-        OperationalStatus.NORMAL -> SemaforoGreen
+        OperationalStatus.OPTIMAL -> SemaforoGreen
         OperationalStatus.WARNING -> SemaforoYellow
         OperationalStatus.CRITICAL -> SemaforoRed
     }

@@ -8,6 +8,7 @@ data class VibrationReading(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val pumpId: Long = 1,
+    val deviceId: String = "",
     val timestamp: Long = System.currentTimeMillis(),
     val rms: Float,
     val peakFrequency: Float,
@@ -15,5 +16,5 @@ data class VibrationReading(
     val status: String, // "NORMAL", "ADVERTENCIA", "CRITICO", "APAGADA"
     val isPumpOn: Boolean,
     val notes: String = "",
-    val mode: String = "BOMBA" // "BOMBA" o "LADERA"
+    val healthPercentage: Float = 100f
 )

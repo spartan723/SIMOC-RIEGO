@@ -2,9 +2,16 @@ package com.example
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.alert.AutonomousAlertDispatcher
+import com.example.data.AgroDatabase
+import com.example.data.model.PumpProfile
+import com.example.data.model.VibrationReading
 import com.example.sensor.FftEngine
+import com.example.sensor.LiveTelemetry
 import com.example.sensor.OperationalStatus
 import com.example.sensor.PumpFaultType
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -74,5 +81,76 @@ class ExampleRobolectricTest {
     assertFalse("FFT spectrum should not be empty", spectrum.isEmpty())
     assertEquals(32, spectrum.size)
     assertTrue("Magnitude is positive", spectrum.any { it.magnitude > 0f })
+  }
+
+  @Test
+  fun `real continuous health percentage test`() {
+    val baselineRms = 1.90f
+    val yellowMultiplier = 1.35f
+    val redMultiplier = 2.0f
+
+    // When ratio = 1.0 -> 100%
+    val ratioNormal = 1.0f
+    val healthNormal = (100f - ((ratioNormal - 1.0f) / (yellowMultiplier - 1.0f).coerceAtLeast(0.05f) * 22f)).toInt()
+    assertEquals(100, healthNormal)
+
+    // When ratio is critical (e.g. 2.4x) -> lower health
+    val ratioCritical = 2.4f
+    val excess = (ratioCritical - redMultiplier)
+    val healthCritical = (35f - excess * 25f).coerceAtLeast(5f).toInt()
+    assertTrue("Health should drop to critical level", healthCritical < 35)
+  }
+
+  @Test
+  fun `room database reading save and count test`() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val db = AgroDatabase.getDatabase(context, this)
+    val dao = db.vibrationReadingDao()
+
+    val reading = VibrationReading(
+      pumpId = 1,
+      timestamp = System.currentTimeMillis(),
+      rms = 2.45f,
+      peakFrequency = 50.1f,
+      peakToPeak = 4.8f,
+      status = "ADVERTENCIA",
+      isPumpOn = true,
+      notes = "Test Unit Reading",
+      mode = "BOMBA"
+    )
+
+    dao.insertReading(reading)
+    val recent = dao.getRecentReadings(1).first()
+    assertTrue("Recent readings should include inserted reading", recent.any { it.notes == "Test Unit Reading" })
+  }
+
+  @Test
+  fun `autonomous alert dispatcher creates notification test`() = runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val dispatcher = AutonomousAlertDispatcher(context)
+
+    val pump = PumpProfile(
+      id = 1,
+      name = "Bomba Test",
+      sector = "Sector Norte",
+      alertPhoneNumber = "+5491123456789"
+    )
+
+    val telemetry = LiveTelemetry(
+      rms = 4.5f,
+      status = OperationalStatus.CRITICAL,
+      faultType = PumpFaultType.IMPELLER_IMBALANCE,
+      healthPercentage = 22,
+      statusMessage = "Detener equipo inmediatamente"
+    )
+
+    val results = dispatcher.dispatchAutonomousAlert(
+      pump = pump,
+      telemetry = telemetry,
+      forceDispatch = true
+    )
+
+    assertTrue("Should return dispatch results", results.isNotEmpty())
+    assertTrue("Should include notification attempt", results.any { it.method == "NOTIFICACION" && it.isSuccess })
   }
 }

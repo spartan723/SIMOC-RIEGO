@@ -1,59 +1,35 @@
 package com.example.ui.theme
 
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 
 private val DarkColorScheme = darkColorScheme(
-    primary = EmeraldPrimaryDark,
-    onPrimary = EmeraldOnPrimaryDark,
-    primaryContainer = EmeraldContainerDark,
-    onPrimaryContainer = EmeraldOnContainerDark,
-    secondary = SlateSecondaryDark,
+    primary = EmeraldPrimary,
+    onPrimary = Color.Black,
+    primaryContainer = EmeraldContainer,
+    onPrimaryContainer = Color(0xFFA7F3D0),
+    secondary = SemaforoYellow,
+    onSecondary = Color.Black,
+    error = SemaforoRed,
+    onError = Color.White,
     background = BackgroundDark,
+    onBackground = Color(0xFFF1F5F9),
     surface = SurfaceDark,
-    surfaceVariant = SurfaceVariantDark,
-    onBackground = OnSurfaceDark,
-    onSurface = OnSurfaceDark,
-)
-
-private val LightColorScheme = lightColorScheme(
-    primary = EmeraldPrimaryLight,
-    onPrimary = EmeraldOnPrimaryLight,
-    primaryContainer = EmeraldContainerLight,
-    onPrimaryContainer = EmeraldOnContainerLight,
-    secondary = SlateSecondaryLight,
-    background = BackgroundLight,
-    surface = SurfaceLight,
-    surfaceVariant = SurfaceVariantLight,
-    onBackground = OnSurfaceLight,
-    onSurface = OnSurfaceLight,
+    onSurface = Color(0xFFE2E8F0),
+    surfaceVariant = SurfaceCard,
+    onSurfaceVariant = Color(0xFF94A3B8),
+    outline = BorderDark
 )
 
 @Composable
 fun AgroVigiaTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false, // Keep consistent branding colors for industrial visibility
-    content: @Composable () -> Unit,
+    darkTheme: Boolean = true,
+    content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-
     MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
+        colorScheme = DarkColorScheme,
         content = content
     )
 }

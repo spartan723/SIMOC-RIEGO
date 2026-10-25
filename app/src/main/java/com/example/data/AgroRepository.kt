@@ -10,45 +10,32 @@ import kotlinx.coroutines.flow.Flow
 
 class AgroRepository(
     private val pumpDao: PumpDao,
-    private val readingDao: VibrationReadingDao,
-    private val maintenanceDao: MaintenanceRecordDao
+    private val vibrationReadingDao: VibrationReadingDao,
+    private val maintenanceRecordDao: MaintenanceRecordDao
 ) {
-    fun getPump(pumpId: Long = 1): Flow<PumpProfile?> = pumpDao.getPumpById(pumpId)
+    fun getPump(id: Long): Flow<PumpProfile?> = pumpDao.getPump(id)
 
     fun getAllPumps(): Flow<List<PumpProfile>> = pumpDao.getAllPumps()
 
-    fun getRecentReadings(pumpId: Long = 1): Flow<List<VibrationReading>> =
-        readingDao.getRecentReadings(pumpId)
+    suspend fun insertPump(pump: PumpProfile): Long = pumpDao.insertPump(pump)
 
-    fun getTrendReadings(pumpId: Long = 1): Flow<List<VibrationReading>> =
-        readingDao.getTrendReadings(pumpId)
+    suspend fun updatePump(pump: PumpProfile) = pumpDao.updatePump(pump)
 
-    fun getAlertEvents(pumpId: Long = 1): Flow<List<VibrationReading>> =
-        readingDao.getAlertEvents(pumpId)
+    fun getRecentReadings(pumpId: Long): Flow<List<VibrationReading>> =
+        vibrationReadingDao.getRecentReadings(pumpId)
 
-    fun getMaintenanceRecords(pumpId: Long = 1): Flow<List<MaintenanceRecord>> =
-        maintenanceDao.getMaintenanceRecords(pumpId)
+    fun getAlertEvents(pumpId: Long): Flow<List<VibrationReading>> =
+        vibrationReadingDao.getAlertEvents(pumpId)
 
-    fun getTotalSavings(pumpId: Long = 1): Flow<Double?> =
-        maintenanceDao.getTotalSavings(pumpId)
+    suspend fun insertReading(reading: VibrationReading): Long =
+        vibrationReadingDao.insertReading(reading)
 
-    suspend fun saveReading(reading: VibrationReading): Long =
-        readingDao.insertReading(reading)
+    fun getMaintenanceRecords(pumpId: Long): Flow<List<MaintenanceRecord>> =
+        maintenanceRecordDao.getMaintenanceRecords(pumpId)
 
-    suspend fun updatePump(pump: PumpProfile) =
-        pumpDao.updatePump(pump)
+    fun getTotalSavings(pumpId: Long): Flow<Double?> =
+        maintenanceRecordDao.getTotalSavings(pumpId)
 
-    suspend fun updateBaseline(pumpId: Long, baselineRms: Float, baselineFreq: Float) {
-        pumpDao.updateBaseline(pumpId, baselineRms, baselineFreq, System.currentTimeMillis())
-    }
-
-    suspend fun updateRunningState(pumpId: Long, isRunning: Boolean) {
-        pumpDao.updateRunningState(pumpId, isRunning)
-    }
-
-    suspend fun addMaintenanceRecord(record: MaintenanceRecord): Long =
-        maintenanceDao.insertRecord(record)
-
-    suspend fun clearHistory(pumpId: Long = 1) =
-        readingDao.clearReadingsForPump(pumpId)
+    suspend fun insertMaintenance(record: MaintenanceRecord): Long =
+        maintenanceRecordDao.insertRecord(record)
 }

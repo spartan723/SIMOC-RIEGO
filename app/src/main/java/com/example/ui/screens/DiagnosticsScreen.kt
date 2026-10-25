@@ -1,11 +1,10 @@
 package com.example.ui.screens
 
-import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,34 +19,38 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.VibrationReading
 import com.example.ui.AgroViewModel
 import com.example.ui.theme.SemaforoGreen
+import com.example.ui.theme.SemaforoOff
 import com.example.ui.theme.SemaforoRed
 import com.example.ui.theme.SemaforoYellow
 import java.text.SimpleDateFormat
@@ -55,136 +58,192 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun DiagnosticsScreen(
-    viewModel: AgroViewModel,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val readings by viewModel.recentReadings.collectAsState()
-    val alerts by viewModel.alertEvents.collectAsState()
-    val pump by viewModel.currentPump.collectAsState()
+fun DiagnosticsScreen(viewModel: AgroViewModel) {
+    val healthSummary by viewModel.healthSummary.collectAsState()
+    val allReadings by viewModel.recentReadings.collectAsState()
+    val alertEvents by viewModel.alertEvents.collectAsState()
 
-    val dateFormat = SimpleDateFormat("dd/MM HH:mm:ss", Locale.getDefault())
+    var selectedFilter by remember { mutableStateOf("TODOS") }
+
+    val filteredReadings = remember(allReadings, selectedFilter) {
+        when (selectedFilter) {
+            "ALERTAS" -> allReadings.filter { it.status == "ADVERTENCIA" || it.status == "CRITICO" }
+            "OPTIMOS" -> allReadings.filter { it.status == "NORMAL" }
+            else -> allReadings
+        }
+    }
 
     LazyColumn(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF090D0A))
-            .testTag("diagnostics_screen"),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Header & Share
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Historial & Diagnóstico",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = Color.White
-                    )
-                    Text(
-                        text = "${readings.size} registros almacenados en el teléfono",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color(0xFF94A3B8)
-                    )
-                }
+            Spacer(modifier = Modifier.height(8.dp))
 
-                Button(
-                    onClick = {
-                        val reportText = buildReport(pump?.name ?: "Bomba", readings, alerts)
-                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_SUBJECT, "Reporte Diagnóstico BOMBAVIGIA")
-                            putExtra(Intent.EXTRA_TEXT, reportText)
-                        }
-                        context.startActivity(Intent.createChooser(shareIntent, "Compartir Reporte"))
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B3825)),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, tint = SemaforoGreen, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Exportar", color = Color(0xFF4ADE80), fontSize = 13.sp)
-                }
-            }
-        }
-
-        // Summary Card
-        item {
+            // Real Mechanical Health Summary Header
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF131A15)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF141F17)),
                 shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E3A2B)),
+                modifier = Modifier.fillMaxWidth().testTag("card_health_summary")
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "RESUMEN DE SALUD MECÁNICA",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = Color(0xFF94A3B8)
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Assessment,
+                                contentDescription = "Diagnóstico Real",
+                                tint = SemaforoGreen,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "RESUMEN DE SALUD MECÁNICA REAL",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = Color.White
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(SemaforoGreen.copy(alpha = 0.2f))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "%.0f%% SALUD".format(healthSummary.healthScore),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black),
+                                color = SemaforoGreen
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        SummaryColumn(
-                            title = "Alertas Totales",
-                            value = alerts.size.toString(),
-                            color = if (alerts.isNotEmpty()) SemaforoYellow else SemaforoGreen
+                        HealthMetricItem(
+                            label = "Desgaste Rodamientos",
+                            value = "%.2f x".format(healthSummary.bearingWearIndex),
+                            indicatorColor = if (healthSummary.bearingWearIndex > 1.5f) SemaforoRed else SemaforoGreen
                         )
-                        SummaryColumn(
-                            title = "Línea Base",
-                            value = "${String.format("%.2f", pump?.baselineRms ?: 1.9f)} m/s²",
-                            color = Color(0xFF38BDF8)
+                        HealthMetricItem(
+                            label = "Riesgo Cavitación",
+                            value = healthSummary.cavitationRisk,
+                            indicatorColor = when (healthSummary.cavitationRisk) {
+                                "ELEVADO" -> SemaforoRed
+                                "MEDIO" -> SemaforoYellow
+                                else -> SemaforoGreen
+                            }
                         )
-                        SummaryColumn(
-                            title = "Horas Operadas",
-                            value = "${String.format("%.1f", pump?.totalOperatingHours ?: 0f)} h",
-                            color = Color(0xFFA78BFA)
+                        HealthMetricItem(
+                            label = "Días para Service",
+                            value = "${healthSummary.estimatedDaysToService} d",
+                            indicatorColor = if (healthSummary.estimatedDaysToService < 30) SemaforoYellow else SemaforoGreen
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Horas Operativas Totales: %.1f h".format(healthSummary.operatingHours),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF94A3B8)
+                        )
+                        Text(
+                            text = "Alertas registradas: ${alertEvents.size}",
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                            color = if (alertEvents.isNotEmpty()) SemaforoYellow else Color(0xFFA7F3D0)
                         )
                     }
                 }
             }
         }
 
-        // Section: Lista de Eventos y Ciclos
         item {
-            Text(
-                text = "Registro de Ciclos de Medición (Cada 15s)",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color.White
-            )
+            // Filter Chips & Header for History
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "HISTORIAL COMPLETO DE TELEMETRÍA",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White
+                    )
+                    Text(
+                        text = "${filteredReadings.size} registros",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFFA7F3D0)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = selectedFilter == "TODOS",
+                        onClick = { selectedFilter = "TODOS" },
+                        label = { Text("Todos (${allReadings.size})") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = SemaforoGreen,
+                            selectedLabelColor = Color.Black
+                        )
+                    )
+                    FilterChip(
+                        selected = selectedFilter == "ALERTAS",
+                        onClick = { selectedFilter = "ALERTAS" },
+                        label = { Text("Alertas (${allReadings.count { it.status == "ADVERTENCIA" || it.status == "CRITICO" }})") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = SemaforoYellow,
+                            selectedLabelColor = Color.Black
+                        )
+                    )
+                    FilterChip(
+                        selected = selectedFilter == "OPTIMOS",
+                        onClick = { selectedFilter = "OPTIMOS" },
+                        label = { Text("Normales") },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = SemaforoGreen,
+                            selectedLabelColor = Color.Black
+                        )
+                    )
+                }
+            }
         }
 
-        if (readings.isEmpty()) {
+        if (filteredReadings.isEmpty()) {
             item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF131A15)),
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Icon(Icons.Default.Assessment, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(36.dp))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Esperando próximos ciclos de lectura del sensor...",
-                            color = Color(0xFF94A3B8),
-                            fontSize = 13.sp
-                        )
-                    }
+                    Text(
+                        text = "Recopilando telemetría del sensor en tiempo real...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF64748B)
+                    )
                 }
             }
         } else {
-            items(readings, key = { it.id }) { reading ->
-                ReadingItemCard(reading = reading, dateFormat = dateFormat)
+            items(filteredReadings, key = { it.id }) { reading ->
+                ReadingItemCard(reading = reading)
             }
         }
 
@@ -195,61 +254,82 @@ fun DiagnosticsScreen(
 }
 
 @Composable
-private fun SummaryColumn(title: String, value: String, color: Color) {
+fun HealthMetricItem(
+    label: String,
+    value: String,
+    indicatorColor: Color
+) {
     Column {
-        Text(title, style = MaterialTheme.typography.labelSmall, color = Color(0xFF94A3B8))
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            value,
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
-            color = color
-        )
+        Text(text = label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = Color(0xFF94A3B8))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(indicatorColor)
+            )
+            Text(text = value, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = Color.White)
+        }
     }
 }
 
 @Composable
-private fun ReadingItemCard(
-    reading: VibrationReading,
-    dateFormat: SimpleDateFormat
-) {
-    val (statusColor, statusLabel) = when (reading.status) {
-        "NORMAL" -> Pair(SemaforoGreen, "NORMAL")
-        "ADVERTENCIA" -> Pair(SemaforoYellow, "AVISO")
-        "CRITICO" -> Pair(SemaforoRed, "PELIGRO")
-        else -> Pair(Color(0xFF64748B), "APAGADA")
+fun ReadingItemCard(reading: VibrationReading) {
+    val statusColor = when (reading.status) {
+        "NORMAL" -> SemaforoGreen
+        "ADVERTENCIA" -> SemaforoYellow
+        "CRITICO" -> SemaforoRed
+        else -> SemaforoOff
     }
 
+    val dateFormat = remember { SimpleDateFormat("HH:mm:ss dd/MM", Locale.getDefault()) }
+    val formattedTime = remember(reading.timestamp) { dateFormat.format(Date(reading.timestamp)) }
+
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF131A15)),
-        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF141F17)),
+        shape = RoundedCornerShape(10.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E3A2B)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(statusColor)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = "${String.format("%.2f", reading.rms)} m/s²  |  ${String.format("%.1f", reading.peakFrequency)} Hz",
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontSize = 14.sp
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(statusColor)
                     )
                     Text(
-                        text = dateFormat.format(Date(reading.timestamp)),
-                        fontSize = 11.sp,
+                        text = reading.status,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = statusColor
+                    )
+                    Text(
+                        text = "• $formattedTime",
+                        style = MaterialTheme.typography.labelSmall,
                         color = Color(0xFF94A3B8)
+                    )
+                }
+                Text(
+                    text = "Vibración RMS: %.2f m/s² | Pico: %.1f Hz".format(reading.rms, reading.peakFrequency),
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                    color = Color.White
+                )
+                if (reading.deviceId.isNotBlank()) {
+                    Text(
+                        text = "Estación: ${reading.deviceId}",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp
+                        ),
+                        color = Color(0xFFA7F3D0)
                     )
                 }
             }
@@ -257,31 +337,15 @@ private fun ReadingItemCard(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .background(statusColor.copy(alpha = 0.2f))
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                    .background(statusColor.copy(alpha = 0.15f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 Text(
-                    text = statusLabel,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp,
+                    text = "%.0f%%".format(reading.healthPercentage),
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = statusColor
                 )
             }
         }
     }
-}
-
-private fun buildReport(pumpName: String, readings: List<VibrationReading>, alerts: List<VibrationReading>): String {
-    val sb = StringBuilder()
-    sb.append("📊 REPORTE DE VIBRACIÓN BOMBAVIGIA\n")
-    sb.append("Equipo: $pumpName\n")
-    sb.append("Fecha: ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())}\n")
-    sb.append("Alertas registradas: ${alerts.size}\n\n")
-    sb.append("Últimos registros de sensor:\n")
-    readings.take(15).forEach {
-        val dt = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(it.timestamp))
-        sb.append("[$dt] RMS: ${String.format("%.2f", it.rms)} m/s² | ${String.format("%.1f", it.peakFrequency)} Hz | ${it.status}\n")
-    }
-    sb.append("\nGenerado por BOMBAVIGIA - Vigilante de bombas de riego.")
-    return sb.toString()
 }

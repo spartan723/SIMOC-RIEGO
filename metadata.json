@@ -1,6 +1,6 @@
 {
   "name": "BOMBAVIGIA",
-  "description": "BOMBAVIGIA: Vigilante de vibración y mantenimiento predictivo para bombas de riego agrícolas con celulares reciclados.",
+  "description": "Sistema Centinela de Riego Agrícola, Monitoreo Predictivo de Vibración y Red Cloud de Estaciones IoT",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

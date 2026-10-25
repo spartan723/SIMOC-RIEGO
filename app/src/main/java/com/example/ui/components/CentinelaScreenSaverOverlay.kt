@@ -56,7 +56,7 @@ fun CentinelaScreenSaverOverlay(
 ) {
     val statusColor = when (status) {
         OperationalStatus.OFF -> Color(0xFF64748B)
-        OperationalStatus.NORMAL -> SemaforoGreen
+        OperationalStatus.OPTIMAL -> SemaforoGreen
         OperationalStatus.WARNING -> SemaforoYellow
         OperationalStatus.CRITICAL -> SemaforoRed
     }

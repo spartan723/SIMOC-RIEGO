@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">BOMBAVIGIA</string>
+    <string name="default_web_client_id" translatable="false">577582351963-j8hhba01qbk2ojf60e9pci9knddro6io.apps.googleusercontent.com</string>
 </resources>

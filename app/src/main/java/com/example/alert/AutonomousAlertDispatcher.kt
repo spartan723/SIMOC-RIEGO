@@ -1,155 +1,171 @@
 package com.example.alert
 
-import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
-import android.content.pm.PackageManager
 import android.os.Build
 import android.telephony.SmsManager
-import androidx.core.content.ContextCompat
-import com.example.data.model.PumpProfile
-import com.example.sensor.LiveTelemetry
-import com.example.sensor.OperationalStatus
+import android.util.Log
+import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.concurrent.TimeUnit
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+
+private const val TAG = "AlertDispatcher"
 
 data class DispatchResult(
-    val isSuccess: Boolean,
-    val method: String, // "SMS", "TELEGRAM", "WEBHOOK"
-    val message: String,
-    val timestamp: Long = System.currentTimeMillis()
+    val smsSent: Boolean,
+    val notificationSent: Boolean,
+    val webhookSent: Boolean,
+    val details: String
 )
 
 class AutonomousAlertDispatcher(private val context: Context) {
 
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
+    private val notificationManager =
+        context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
 
-    // Cooldown trackers (prevent spamming alerts continuously)
-    private var lastSmsSentTimeMs: Long = 0
-    private var lastTelegramSentTimeMs: Long = 0
-    private val alertCooldownMs: Long = 15 * 60 * 1000L // 15 minutes between automated alerts
+    private var lastDispatchTimeMs = 0L
+    private val debounceWindowMs = 60_000L // 1 minute debounce between automated dispatches
 
-    suspend fun dispatchAutonomousAlert(
-        pump: PumpProfile,
-        telemetry: LiveTelemetry,
-        telegramBotToken: String = "",
-        telegramChatId: String = "",
-        webhookUrl: String = "",
-        forceDispatch: Boolean = false
-    ): List<DispatchResult> = withContext(Dispatchers.IO) {
-        val results = mutableListOf<DispatchResult>()
+    init {
+        createNotificationChannel()
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "bombavigia_alerts",
+                "Alertas Críticas BOMBAVIGIA",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notificaciones de vibración anómala y parada de emergencia de bomba"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500)
+            }
+            notificationManager?.createNotificationChannel(channel)
+        }
+    }
+
+    suspend fun dispatchAlert(
+        pumpName: String,
+        sector: String,
+        status: String,
+        rms: Float,
+        threshold: Float,
+        phoneNumber: String,
+        telegramToken: String? = null,
+        telegramChatId: String? = null,
+        webhookUrl: String? = null,
+        forceBypassDebounce: Boolean = false
+    ): DispatchResult = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
+        if (!forceBypassDebounce && (now - lastDispatchTimeMs < debounceWindowMs)) {
+            return@withContext DispatchResult(
+                smsSent = false,
+                notificationSent = false,
+                webhookSent = false,
+                details = "Alerta suprimida por ventana de antispam (último despacho hace ${(now - lastDispatchTimeMs)/1000}s)"
+            )
+        }
+        lastDispatchTimeMs = now
 
-        val alertText = "🚨 ALERTA BOMBAVIGIA\n" +
-                "Bomba: ${pump.name} (${pump.sector})\n" +
-                "Estado: ${telemetry.status.name} (${telemetry.faultType.name})\n" +
-                "RMS: ${String.format("%.2f", telemetry.rms)} m/s² (Base: ${String.format("%.2f", pump.baselineRms)} m/s²)\n" +
-                "Frecuencia: ${String.format("%.1f", telemetry.peakFrequency)} Hz | Salud: ${telemetry.healthPercentage}%\n" +
-                "Acción: ${telemetry.statusMessage}"
+        val message = "🚨 ALERTA BOMBAVIGIA: $pumpName en $sector registra estado $status. " +
+                "Vibración: %.2f m/s² (Umbral: %.2f m/s²). Verifique acople o rodamientos urgentemente.".format(rms, threshold)
 
-        // 1. Autonomous SMS Dispatch (via SmsManager)
-        if (pump.alertPhoneNumber.isNotBlank()) {
-            if (forceDispatch || (now - lastSmsSentTimeMs > alertCooldownMs)) {
-                val hasSmsPermission = ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.SEND_SMS
-                ) == PackageManager.PERMISSION_GRANTED
+        var notifOk = false
+        var smsOk = false
+        var webhookOk = false
 
-                if (hasSmsPermission) {
-                    try {
-                        val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            context.getSystemService(SmsManager::class.java)
-                        } else {
-                            @Suppress("DEPRECATION")
-                            SmsManager.getDefault()
-                        }
+        // 1. Android Notification
+        try {
+            val builder = NotificationCompat.Builder(context, "bombavigia_alerts")
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle("BOMBAVIGIA: $status en $pumpName")
+                .setContentText("RMS: %.2f m/s² supera umbral %.2f".format(rms, threshold))
+                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setAutoCancel(true)
 
-                        val cleanPhone = pump.alertPhoneNumber.filter { it.isDigit() || it == '+' }
-                        smsManager.sendTextMessage(cleanPhone, null, alertText, null, null)
-                        lastSmsSentTimeMs = now
-                        results.add(DispatchResult(true, "SMS", "SMS autónomo enviado con éxito a $cleanPhone"))
-                    } catch (e: Exception) {
-                        results.add(DispatchResult(false, "SMS", "Error enviando SMS: ${e.message}"))
-                    }
-                } else {
-                    results.add(DispatchResult(false, "SMS", "Permiso SEND_SMS no concedido"))
-                }
-            } else {
-                results.add(DispatchResult(false, "SMS", "SMS en enfriamiento (cooldown)"))
-            }
+            notificationManager?.notify(101, builder.build())
+            notifOk = true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error posting notification", e)
         }
 
-        // 2. Telegram Bot Dispatch
-        if (telegramBotToken.isNotBlank() && telegramChatId.isNotBlank()) {
-            if (forceDispatch || (now - lastTelegramSentTimeMs > alertCooldownMs)) {
-                try {
-                    val url = "https://api.telegram.org/bot$telegramBotToken/sendMessage"
-                    val json = """
-                        {
-                            "chat_id": "$telegramChatId",
-                            "text": "${alertText.replace("\n", "\\n")}",
-                            "parse_mode": "HTML"
-                        }
-                    """.trimIndent()
-
-                    val body = json.toRequestBody("application/json".toMediaType())
-                    val request = Request.Builder().url(url).post(body).build()
-                    val response = httpClient.newCall(request).execute()
-
-                    if (response.isSuccessful) {
-                        lastTelegramSentTimeMs = now
-                        results.add(DispatchResult(true, "TELEGRAM", "Mensaje enviado al grupo/canal de Telegram"))
-                    } else {
-                        results.add(DispatchResult(false, "TELEGRAM", "Telegram error: HTTP ${response.code}"))
-                    }
-                    response.close()
-                } catch (e: Exception) {
-                    results.add(DispatchResult(false, "TELEGRAM", "Error conectando con Telegram: ${e.message}"))
-                }
-            }
-        }
-
-        // 3. Custom Webhook Dispatch
-        if (webhookUrl.isNotBlank() && webhookUrl.startsWith("http")) {
+        // 2. Autonomous SMS
+        if (phoneNumber.isNotBlank() && phoneNumber.length >= 7) {
             try {
-                val jsonPayload = """
-                    {
-                        "source": "BOMBAVIGIA",
-                        "pumpId": ${pump.id},
-                        "pumpName": "${pump.name}",
-                        "timestamp": $now,
-                        "rms": ${telemetry.rms},
-                        "baselineRms": ${pump.baselineRms},
-                        "ratio": ${telemetry.ratioToBaseline},
-                        "peakFrequency": ${telemetry.peakFrequency},
-                        "status": "${telemetry.status.name}",
-                        "faultType": "${telemetry.faultType.name}",
-                        "healthPercentage": ${telemetry.healthPercentage}
-                    }
-                """.trimIndent()
-
-                val body = jsonPayload.toRequestBody("application/json".toMediaType())
-                val request = Request.Builder().url(webhookUrl).post(body).build()
-                val response = httpClient.newCall(request).execute()
-
-                if (response.isSuccessful) {
-                    results.add(DispatchResult(true, "WEBHOOK", "Telemetría enviada a webhook remoto"))
+                val smsManager: SmsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    context.getSystemService(SmsManager::class.java)
                 } else {
-                    results.add(DispatchResult(false, "WEBHOOK", "Webhook error: HTTP ${response.code}"))
+                    @Suppress("DEPRECATION")
+                    SmsManager.getDefault()
                 }
-                response.close()
+                smsManager.sendTextMessage(phoneNumber, null, message, null, null)
+                smsOk = true
+                Log.d(TAG, "Autonomous SMS dispatched to $phoneNumber")
             } catch (e: Exception) {
-                results.add(DispatchResult(false, "WEBHOOK", "Error conectando con Webhook: ${e.message}"))
+                Log.e(TAG, "Error dispatching SMS to $phoneNumber", e)
             }
         }
 
-        results
+        // 3. Telegram Webhook (if configured)
+        if (!telegramToken.isNullOrBlank() && !telegramChatId.isNullOrBlank()) {
+            try {
+                val encodedMsg = URLEncoder.encode(message, "UTF-8")
+                val tgUrl = URL("https://api.telegram.org/bot$telegramToken/sendMessage?chat_id=$telegramChatId&text=$encodedMsg")
+                val connection = (tgUrl.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                    requestMethod = "GET"
+                }
+                if (connection.responseCode in 200..299) {
+                    webhookOk = true
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending Telegram webhook", e)
+            }
+        }
+
+        // 4. Generic Webhook (if configured)
+        if (!webhookUrl.isNullOrBlank() && webhookUrl.startsWith("http")) {
+            try {
+                val url = URL(webhookUrl)
+                val connection = (url.openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json")
+                    doOutput = true
+                }
+                val jsonPayload = """{"alert":"$status","pump":"$pumpName","rms":$rms,"threshold":$threshold}"""
+                connection.outputStream.use { os ->
+                    os.write(jsonPayload.toByteArray())
+                }
+                if (connection.responseCode in 200..299) {
+                    webhookOk = true
+                }
+                connection.disconnect()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error dispatching generic webhook", e)
+            }
+        }
+
+        val summary = buildString {
+            append("Notificación: ${if (notifOk) "Enviada" else "Falló"}; ")
+            append("SMS ($phoneNumber): ${if (smsOk) "Despachado" else "No despachado"}; ")
+            append("Webhook: ${if (webhookOk) "Recibido" else "Sin configurar"}")
+        }
+
+        DispatchResult(
+            smsSent = smsOk,
+            notificationSent = notifOk,
+            webhookSent = webhookOk,
+            details = summary
+        )
     }
 }

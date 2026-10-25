@@ -66,7 +66,7 @@ fun SemaforoIndicator(
             Icons.Default.PowerSettingsNew,
             "BOMBA EN ESPERA / APAGADA"
         )
-        OperationalStatus.NORMAL -> Quadruple(
+        OperationalStatus.OPTIMAL -> Quadruple(
             SemaforoGreen,
             SemaforoGreenGlow,
             Icons.Default.CheckCircle,

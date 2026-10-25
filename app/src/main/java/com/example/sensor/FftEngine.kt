@@ -5,43 +5,45 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-data class FftPoint(
-    val frequencyHz: Float,
-    val magnitude: Float,
-    val isHarmonicPeak: Boolean = false,
-    val harmonicLabel: String? = null
-)
-
 object FftEngine {
 
+    data class FftPoint(
+        val frequencyHz: Float,
+        val magnitude: Float,
+        val isHarmonicPeak: Boolean = false
+    )
+
+    data class FftResult(
+        val peakFrequencyHz: Float,
+        val peakMagnitude: Float,
+        val spectrum: FloatArray
+    )
+
     /**
-     * Computes the Fast Fourier Transform of real-valued input array using radix-2 Cooley-Tukey.
-     * The size of [input] must be a power of 2 (e.g. 32, 64, 128).
+     * Computes Fast Fourier Transform on signal samples at sampleRateHz.
+     * N must be a power of 2.
      */
-    fun computeFft(input: FloatArray, samplingRateHz: Float = 100f): List<FftPoint> {
-        val n = input.size
+    fun computeFft(samples: FloatArray, sampleRateHz: Float): FftResult {
+        val n = samples.size
         if (n == 0 || (n and (n - 1)) != 0) {
-            return emptyList()
+            return FftResult(0f, 0f, FloatArray(0))
         }
 
-        // Apply Hanning Window to reduce spectral leakage
-        val real = DoubleArray(n)
-        val imag = DoubleArray(n) { 0.0 }
+        // Apply Hann window to reduce spectral leakage
+        val real = FloatArray(n)
+        val imag = FloatArray(n)
         for (i in 0 until n) {
-            val window = 0.5 * (1.0 - cos(2.0 * PI * i / (n - 1)))
-            real[i] = input[i].toDouble() * window
+            val window = (0.5 * (1.0 - cos(2.0 * PI * i / (n - 1)))).toFloat()
+            real[i] = samples[i] * window
+            imag[i] = 0f
         }
 
-        // Bit-reversal permutation
+        // Bit reversal
         var j = 0
         for (i in 0 until n - 1) {
             if (i < j) {
-                val tempR = real[i]
-                real[i] = real[j]
-                real[j] = tempR
-                val tempI = imag[i]
-                imag[i] = imag[j]
-                imag[j] = tempI
+                val tempR = real[i]; real[i] = real[j]; real[j] = tempR
+                val tempI = imag[i]; imag[i] = imag[j]; imag[j] = tempI
             }
             var k = n shr 1
             while (k <= j) {
@@ -51,28 +53,28 @@ object FftEngine {
             j += k
         }
 
-        // Cooley-Tukey computation
+        // Cooley-Tukey Radix-2 FFT
         var len = 2
         while (len <= n) {
-            val half = len shr 1
-            val angle = -2.0 * PI / len
-            val wStepR = cos(angle)
-            val wStepI = sin(angle)
+            val halfLen = len shr 1
+            val angle = (-2.0 * PI / len).toFloat()
+            val wStepR = cos(angle.toDouble()).toFloat()
+            val wStepI = sin(angle.toDouble()).toFloat()
 
             var i = 0
             while (i < n) {
-                var wR = 1.0
-                var wI = 0.0
-                for (k in 0 until half) {
+                var wR = 1.0f
+                var wI = 0.0f
+                for (k in 0 until halfLen) {
                     val uR = real[i + k]
                     val uI = imag[i + k]
-                    val vR = real[i + k + half] * wR - imag[i + k + half] * wI
-                    val vI = real[i + k + half] * wI + imag[i + k + half] * wR
+                    val vR = real[i + k + halfLen] * wR - imag[i + k + halfLen] * wI
+                    val vI = real[i + k + halfLen] * wI + imag[i + k + halfLen] * wR
 
                     real[i + k] = uR + vR
                     imag[i + k] = uI + vI
-                    real[i + k + half] = uR - vR
-                    imag[i + k + half] = uI - vI
+                    real[i + k + halfLen] = uR - vR
+                    imag[i + k + halfLen] = uI - vI
 
                     val nextWR = wR * wStepR - wI * wStepI
                     val nextWI = wR * wStepI + wI * wStepR
@@ -84,34 +86,27 @@ object FftEngine {
             len = len shl 1
         }
 
-        // Calculate magnitude for positive half of frequencies (0 to Nyquist)
-        val halfN = n / 2
-        val freqResolution = samplingRateHz / n
-        val points = ArrayList<FftPoint>(halfN)
+        // Compute magnitude spectrum for positive frequencies [0..n/2]
+        val numBins = n / 2
+        val spectrum = FloatArray(numBins)
+        var maxMag = 0f
+        var maxBin = 0
 
-        for (k in 0 until halfN) {
-            val mag = (sqrt(real[k] * real[k] + imag[k] * imag[k]) * (2.0 / n)).toFloat()
-            val freq = k * freqResolution
-
-            // Detect 1X RPM (around 48-52 Hz) and 2X RPM harmonic
-            val is1X = freq in 46f..54f
-            val is2X = freq in 95f..105f
-            val label = when {
-                is1X -> "1X (Giro)"
-                is2X -> "2X (Desalineación)"
-                else -> null
+        // Skip DC component (index 0)
+        for (bin in 1 until numBins) {
+            val mag = sqrt((real[bin] * real[bin] + imag[bin] * imag[bin]).toDouble()).toFloat() / (n / 2)
+            spectrum[bin] = mag
+            if (mag > maxMag) {
+                maxMag = mag
+                maxBin = bin
             }
-
-            points.add(
-                FftPoint(
-                    frequencyHz = freq,
-                    magnitude = mag,
-                    isHarmonicPeak = is1X || is2X,
-                    harmonicLabel = label
-                )
-            )
         }
 
-        return points
+        val peakFreq = (maxBin * sampleRateHz) / n
+        return FftResult(
+            peakFrequencyHz = peakFreq,
+            peakMagnitude = maxMag,
+            spectrum = spectrum
+        )
     }
 }

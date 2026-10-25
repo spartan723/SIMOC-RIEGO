@@ -28,7 +28,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.sensor.FftPoint
+import com.example.sensor.FftEngine.FftPoint
 import com.example.sensor.OperationalStatus
 import com.example.ui.theme.SemaforoGreen
 import com.example.ui.theme.SemaforoRed
@@ -43,7 +43,7 @@ fun FftSpectrumCanvas(
 ) {
     val barColor = when (status) {
         OperationalStatus.OFF -> Color(0xFF64748B)
-        OperationalStatus.NORMAL -> SemaforoGreen
+        OperationalStatus.OPTIMAL -> SemaforoGreen
         OperationalStatus.WARNING -> SemaforoYellow
         OperationalStatus.CRITICAL -> SemaforoRed
     }

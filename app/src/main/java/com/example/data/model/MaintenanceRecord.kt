@@ -8,9 +8,10 @@ data class MaintenanceRecord(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val pumpId: Long = 1,
+    val deviceId: String = "",
     val timestamp: Long = System.currentTimeMillis(),
-    val actionType: String, // e.g. "Cambio de rodamientos", "Engrase preventivo", "Alineación de eje", "Ajuste de anclaje"
+    val actionType: String,
     val description: String,
     val estimatedRepairSavedUsd: Double = 250.0,
-    val technicianName: String = "Productor local"
+    val technicianName: String = "Técnico Agrícola"
 )

@@ -7,11 +7,12 @@ import androidx.room.PrimaryKey
 data class PumpProfile(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
+    val deviceId: String = "",
     val name: String,
     val sector: String,
     val pumpType: String = "Bomba Centrífuga 5.5 HP",
-    val baselineRms: Float = 1.85f, // Baseline RMS in m/s²
-    val baselineFreq: Float = 48.0f, // Baseline frequency in Hz
+    val baselineRms: Float = 1.85f,
+    val baselineFreq: Float = 48.0f,
     val yellowThresholdMultiplier: Float = 1.35f,
     val redThresholdMultiplier: Float = 2.0f,
     val alertPhoneNumber: String = "+5491123456789",

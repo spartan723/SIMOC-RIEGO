@@ -1,0 +1,102 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidDevice(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.hardwareModel is string && data.hardwareModel.size() <= 100 &&
+             (!('batteryLevel' in data) || (data.batteryLevel is number && data.batteryLevel >= 0 && data.batteryLevel <= 100)) &&
+             data.isActive is bool &&
+             (!('lastSeen' in data) || data.lastSeen is timestamp) &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidPumpProfile(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.deviceId is string && isValidId(data.deviceId) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.sector is string && data.sector.size() <= 100 &&
+             data.baselineRms is number && data.baselineRms >= 0 &&
+             data.yellowMultiplier is number && data.yellowMultiplier >= 1.0 &&
+             data.redMultiplier is number && data.redMultiplier >= data.yellowMultiplier &&
+             (!('alertPhoneNumber' in data) || (data.alertPhoneNumber is string && data.alertPhoneNumber.size() <= 30)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidReading(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.pumpId is string && isValidId(data.pumpId) &&
+             data.deviceId is string && isValidId(data.deviceId) &&
+             data.timestamp is timestamp && data.timestamp <= request.time &&
+             data.rms is number && data.rms >= 0 &&
+             data.peakFrequency is number && data.peakFrequency >= 0 &&
+             data.peakToPeak is number && data.peakToPeak >= 0 &&
+             data.status in ['OPTIMAL', 'WARNING', 'CRITICAL', 'NORMAL', 'ADVERTENCIA', 'CRITICO', 'APAGADA'] &&
+             data.healthPercentage is number && data.healthPercentage >= 0 && data.healthPercentage <= 100;
+    }
+
+    function isValidMaintenance(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.pumpId is string && isValidId(data.pumpId) &&
+             data.deviceId is string && isValidId(data.deviceId) &&
+             data.date is timestamp &&
+             data.description is string && data.description.size() > 0 && data.description.size() <= 500 &&
+             data.costUsd is number && data.costUsd >= 0 &&
+             data.technician is string && data.technician.size() <= 100 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get, list: if isOwner(userId);
+
+      match /devices/{deviceId} {
+        allow get: if isOwner(userId) && isValidId(deviceId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(deviceId) && isValidDevice(request.resource.data);
+        allow update: if isOwner(userId) && isValidId(deviceId) && isValidDevice(request.resource.data) &&
+                         request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId) && isValidId(deviceId);
+      }
+
+      match /pumps/{pumpId} {
+        allow get: if isOwner(userId) && isValidId(pumpId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(pumpId) && isValidPumpProfile(request.resource.data);
+        allow update: if isOwner(userId) && isValidId(pumpId) && isValidPumpProfile(request.resource.data) &&
+                         request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId) && isValidId(pumpId);
+      }
+
+      match /readings/{readingId} {
+        allow get: if isOwner(userId) && isValidId(readingId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(readingId) && isValidReading(request.resource.data);
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(readingId);
+      }
+
+      match /maintenance/{maintenanceId} {
+        allow get: if isOwner(userId) && isValidId(maintenanceId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidId(maintenanceId) && isValidMaintenance(request.resource.data);
+        allow update: if isOwner(userId) && isValidId(maintenanceId) && isValidMaintenance(request.resource.data) &&
+                         request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if isOwner(userId) && isValidId(maintenanceId);
+      }
+    }
+  }
+}

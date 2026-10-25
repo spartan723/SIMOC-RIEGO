@@ -98,24 +98,38 @@ class PumpCentinelaService : Service() {
                 val pump = repository.getPump(1).firstOrNull() ?: continue
 
                 counter++
+                val ratio = if (pump.baselineRms > 0f) telemetry.rms / pump.baselineRms else 1.0f
                 // Update persistent notification every 10 seconds
                 if (counter % 2 == 0) {
-                    val statusText = "RMS: ${String.format("%.2f", telemetry.rms)} m/s² | ${telemetry.status.name} (${String.format("%.1f", telemetry.ratioToBaseline)}x)"
+                    val statusText = "RMS: ${String.format("%.2f", telemetry.rms)} m/s² | ${telemetry.status.name} (${String.format("%.1f", ratio)}x)"
                     updateNotification(statusText)
                 }
 
                 // Check for autonomous dispatch when in warning or critical state
                 if (telemetry.status == OperationalStatus.CRITICAL || telemetry.status == OperationalStatus.WARNING) {
-                    alertDispatcher.dispatchAutonomousAlert(
-                        pump = pump,
-                        telemetry = telemetry,
-                        forceDispatch = false
+                    val prefs = applicationContext.getSharedPreferences("bombavigia_app_prefs", Context.MODE_PRIVATE)
+                    val phone = prefs.getString("emergency_phone", pump.alertPhoneNumber) ?: pump.alertPhoneNumber
+                    val tgToken = prefs.getString("telegram_bot_token", "")
+                    val tgChat = prefs.getString("telegram_chat_id", "")
+                    val webhook = prefs.getString("webhook_url", "")
+
+                    alertDispatcher.dispatchAlert(
+                        pumpName = pump.name,
+                        sector = pump.sector,
+                        status = telemetry.status.name,
+                        rms = telemetry.rms,
+                        threshold = pump.baselineRms * pump.yellowThresholdMultiplier,
+                        phoneNumber = phone,
+                        telegramToken = tgToken,
+                        telegramChatId = tgChat,
+                        webhookUrl = webhook,
+                        forceBypassDebounce = false
                     )
                 }
 
                 // Periodic database persistence every 15 seconds
                 if (counter % 3 == 0) {
-                    repository.saveReading(
+                    repository.insertReading(
                         VibrationReading(
                             pumpId = pump.id,
                             timestamp = System.currentTimeMillis(),
@@ -124,8 +138,8 @@ class PumpCentinelaService : Service() {
                             peakToPeak = telemetry.peakToPeak,
                             status = telemetry.status.name,
                             isPumpOn = telemetry.isPumpRunning,
-                            notes = "Centinela 24/7 - ${telemetry.isoClassification}",
-                            mode = "BOMBA"
+                            notes = "Centinela 24/7 - ${telemetry.statusText}",
+                            healthPercentage = telemetry.healthPercentage
                         )
                     )
                 }
