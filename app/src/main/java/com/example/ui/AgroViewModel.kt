@@ -5,24 +5,20 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.R
 import com.example.alert.AutonomousAlertDispatcher
 import com.example.alert.DispatchResult
 import com.example.data.AgroDatabase
 import com.example.data.AgroRepository
-import com.example.data.firebase.DeviceDto
-import com.example.data.firebase.FirestoreAgroRepository
-import com.example.data.firebase.MaintenanceLogDto
-import com.example.data.firebase.PumpProfileDto
-import com.example.data.firebase.VibrationReadingDto
 import com.example.data.model.MaintenanceRecord
 import com.example.data.model.PumpProfile
 import com.example.data.model.VibrationReading
+import com.example.data.supabase.StationCloudRecord
+import com.example.data.supabase.SupabaseClient
+import com.example.data.supabase.SupabaseVibrationPayload
 import com.example.device.DeviceManager
 import com.example.sensor.HardwareSensorMonitor
 import com.example.sensor.LiveTelemetry
 import com.example.sensor.OperationalStatus
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,13 +61,8 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
         database.maintenanceRecordDao()
     )
 
-    private val firestoreDb: FirebaseFirestore by lazy {
-        val dbId = application.getString(R.string.firestore_database_id)
-        FirebaseFirestore.getInstance(dbId)
-    }
-    private val firestoreRepo: FirestoreAgroRepository by lazy {
-        FirestoreAgroRepository(firestoreDb)
-    }
+    // Supabase Cloud Client
+    val supabaseClient = SupabaseClient(application)
 
     val sensorMonitor = HardwareSensorMonitor(application)
     val telemetry: StateFlow<LiveTelemetry> = sensorMonitor.telemetry
@@ -94,12 +85,14 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
     val totalSavings: StateFlow<Double?> = localRepo.getTotalSavings(1)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 1070.0)
 
-    // Cloud Synchronized States
-    private val _currentUserId = MutableStateFlow<String?>(null)
-    val currentUserId: StateFlow<String?> = _currentUserId.asStateFlow()
+    // Supabase Cloud Synchronized States
+    private val _cloudDevices = MutableStateFlow<List<StationCloudRecord>>(emptyList())
+    val cloudDevices: StateFlow<List<StationCloudRecord>> = _cloudDevices.asStateFlow()
 
-    private val _cloudDevices = MutableStateFlow<List<DeviceDto>>(emptyList())
-    val cloudDevices: StateFlow<List<DeviceDto>> = _cloudDevices.asStateFlow()
+    private val _supabaseStatus = MutableStateFlow(
+        if (supabaseClient.isConfigured) "Configurado" else "No configurado (Solo Local)"
+    )
+    val supabaseStatus: StateFlow<String> = _supabaseStatus.asStateFlow()
 
     private val _calibrationState = MutableStateFlow(CalibrationState())
     val calibrationState: StateFlow<CalibrationState> = _calibrationState.asStateFlow()
@@ -132,46 +125,51 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         startTelemetryLoop()
+        syncStationToSupabase()
+        refreshCloudStations()
     }
 
-    /**
-     * Initializes cloud sync when user authenticates with Google.
-     */
-    fun setAuthenticatedUser(userId: String) {
-        if (_currentUserId.value == userId) return
-        _currentUserId.value = userId
+    fun updateSupabaseCredentials(url: String, key: String) {
+        supabaseClient.supabaseUrl = url
+        supabaseClient.supabaseAnonKey = key
+        _supabaseStatus.value = if (supabaseClient.isConfigured) "Configurado" else "No configurado"
+        if (supabaseClient.isConfigured) {
+            syncStationToSupabase()
+            refreshCloudStations()
+        }
+    }
 
+    fun testSupabase(onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            val res = supabaseClient.testConnection()
+            _supabaseStatus.value = if (res.isSuccess) "Conectado a Supabase" else "Error: ${res.message}"
+            onResult(res.isSuccess, res.message)
+            if (res.isSuccess) {
+                syncStationToSupabase()
+                refreshCloudStations()
+            }
+        }
+    }
+
+    private fun syncStationToSupabase() {
+        if (!supabaseClient.isConfigured) return
         viewModelScope.launch {
             try {
-                // Register this physical device in Firestore
-                val deviceDto = deviceManager.toDeviceDto()
-                firestoreRepo.registerOrUpdateDevice(userId, deviceDto)
-
-                // Sync current pump profile to Firestore
-                currentPump.value?.let { pump ->
-                    firestoreRepo.savePump(
-                        userId,
-                        PumpProfileDto(
-                            id = "pump_${pump.id}",
-                            deviceId = deviceId,
-                            name = pump.name,
-                            sector = pump.sector,
-                            baselineRms = pump.baselineRms.toDouble(),
-                            yellowMultiplier = pump.yellowThresholdMultiplier.toDouble(),
-                            redMultiplier = pump.redThresholdMultiplier.toDouble(),
-                            alertPhoneNumber = pump.alertPhoneNumber
-                        )
-                    )
-                }
-
-                // Listen to all devices owned by user
-                launch {
-                    firestoreRepo.observeDevices(userId).collect { devices ->
-                        _cloudDevices.value = devices
-                    }
-                }
+                val station = deviceManager.toStationRecord()
+                supabaseClient.upsertStation(station)
+                Log.d(TAG, "Station synced to Supabase: ${station.id}")
             } catch (e: Exception) {
-                Log.e(TAG, "Error initializing user cloud sync", e)
+                Log.w(TAG, "Could not sync station to Supabase: ${e.message}")
+            }
+        }
+    }
+
+    fun refreshCloudStations() {
+        if (!supabaseClient.isConfigured) return
+        viewModelScope.launch {
+            val res = supabaseClient.fetchStations()
+            res.onSuccess { stations ->
+                _cloudDevices.value = stations
             }
         }
     }
@@ -214,21 +212,25 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     localRepo.insertReading(reading)
 
-                    // Cloud Sync to Firestore if signed in
-                    _currentUserId.value?.let { uid ->
+                    // Cloud Sync to Supabase if configured
+                    if (supabaseClient.isConfigured) {
                         launch {
-                            firestoreRepo.saveReading(
-                                uid,
-                                VibrationReadingDto(
-                                    pumpId = "pump_${pump?.id ?: 1}",
+                            supabaseClient.insertReading(
+                                SupabaseVibrationPayload(
+                                    pumpId = pump?.id ?: 1L,
                                     deviceId = deviceId,
                                     rms = t.rms.toDouble(),
                                     peakFrequency = t.peakFrequency.toDouble(),
                                     peakToPeak = t.peakToPeak.toDouble(),
                                     status = reading.status,
-                                    healthPercentage = t.healthPercentage.toDouble()
+                                    isPumpOn = t.isPumpRunning,
+                                    healthPercentage = t.healthPercentage.toDouble(),
+                                    notes = "Vigía Agro IoT - ${t.statusText}"
                                 )
                             )
+                        }
+                        if (sampleCounter % 15 == 0) {
+                            refreshCloudStations()
                         }
                     }
 
@@ -251,82 +253,79 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                // Update Health Summary calculation
+                // Update mechanical health summary derived from real readings
                 updateHealthSummary(t, pump)
             }
         }
     }
 
     private fun updateHealthSummary(t: LiveTelemetry, pump: PumpProfile?) {
-        val wearIndex = (t.rms / (pump?.baselineRms ?: 1.85f)).coerceIn(0.1f, 3.5f)
-        val cavRisk = when {
-            t.peakFrequency > 120f -> "ELEVADO"
-            t.peakFrequency > 70f -> "MEDIO"
+        val baseRms = pump?.baselineRms ?: 1.85f
+        val ratio = if (baseRms > 0f) t.rms / baseRms else 1.0f
+
+        val wearIndex = ((ratio - 1.0f).coerceAtLeast(0f) * 0.35f).coerceIn(0.05f, 0.95f)
+        val cavitation = when {
+            t.peakFrequency > 70f && t.rms > baseRms * 1.3f -> "ALTO (Implosión detectada)"
+            t.peakFrequency > 55f -> "MODERADO"
             else -> "BAJO"
         }
-        val daysRemaining = when (t.status) {
-            OperationalStatus.OPTIMAL -> 240
-            OperationalStatus.WARNING -> 45
-            OperationalStatus.CRITICAL -> 7
-            OperationalStatus.OFF -> 365
+
+        val estimatedDays = when {
+            t.status == OperationalStatus.CRITICAL -> 2
+            t.status == OperationalStatus.WARNING -> 14
+            ratio > 1.2f -> 45
+            else -> 180
         }
+
         _healthSummary.value = MechanicalHealthSummary(
             healthScore = t.healthPercentage,
             bearingWearIndex = wearIndex,
-            cavitationRisk = cavRisk,
-            estimatedDaysToService = daysRemaining,
-            operatingHours = (pump?.totalOperatingHours ?: 184.2f) + (sampleCounterToHours()),
+            cavitationRisk = cavitation,
+            estimatedDaysToService = estimatedDays,
+            operatingHours = pump?.totalOperatingHours ?: 184.2f,
             totalAlertsRecorded = alertEvents.value.size
         )
     }
 
-    private var sampleTicks = 0
-    private fun sampleCounterToHours(): Float {
-        sampleTicks++
-        return (sampleTicks * 2f) / 3600f
-    }
-
-    fun startCalibration() {
+    fun startCalibration(durationSeconds: Int = 10) {
+        if (_calibrationState.value.isCalibrating) return
         calibrationJob?.cancel()
-        _calibrationState.value = CalibrationState(isCalibrating = true, progressSeconds = 0, totalSeconds = 10)
-        val collected = mutableListOf<Float>()
 
         calibrationJob = viewModelScope.launch {
-            for (sec in 1..10) {
+            _calibrationState.value = CalibrationState(
+                isCalibrating = true,
+                progressSeconds = 0,
+                totalSeconds = durationSeconds,
+                samples = emptyList()
+            )
+
+            val collectedSamples = mutableListOf<Float>()
+            for (sec in 1..durationSeconds) {
                 delay(1000)
-                collected.add(telemetry.value.rms)
+                val currentRms = telemetry.value.rms
+                collectedSamples.add(currentRms)
                 _calibrationState.value = _calibrationState.value.copy(
                     progressSeconds = sec,
-                    samples = collected.toList()
+                    samples = collectedSamples.toList()
                 )
             }
-            // Finish calibration
-            val avgBaseline = if (collected.isNotEmpty()) collected.average().toFloat() else 1.85f
-            currentPump.value?.let { current ->
-                val updated = current.copy(
-                    baselineRms = (avgBaseline * 100).toInt() / 100f,
-                    lastCalibrationTime = System.currentTimeMillis()
-                )
-                localRepo.updatePump(updated)
 
-                // Sync to Firestore
-                _currentUserId.value?.let { uid ->
-                    firestoreRepo.savePump(
-                        uid,
-                        PumpProfileDto(
-                            id = "pump_${updated.id}",
-                            deviceId = deviceId,
-                            name = updated.name,
-                            sector = updated.sector,
-                            baselineRms = updated.baselineRms.toDouble(),
-                            yellowMultiplier = updated.yellowThresholdMultiplier.toDouble(),
-                            redMultiplier = updated.redThresholdMultiplier.toDouble(),
-                            alertPhoneNumber = updated.alertPhoneNumber
-                        )
+            // Calculate new baseline
+            if (collectedSamples.isNotEmpty()) {
+                val avgRms = collectedSamples.average().toFloat()
+                val peakFreq = telemetry.value.peakFrequency
+                currentPump.value?.let { pump ->
+                    val updated = pump.copy(
+                        baselineRms = avgRms,
+                        baselineFreq = peakFreq,
+                        isCalibrated = true,
+                        lastCalibrationTime = System.currentTimeMillis()
                     )
+                    localRepo.updatePump(updated)
                 }
             }
-            _calibrationState.value = CalibrationState(isCalibrating = false)
+
+            _calibrationState.value = _calibrationState.value.copy(isCalibrating = false)
         }
     }
 
@@ -356,22 +355,6 @@ class AgroViewModel(application: Application) : AndroidViewModel(application) {
                     redThresholdMultiplier = redThreshold
                 )
                 localRepo.updatePump(updated)
-
-                _currentUserId.value?.let { uid ->
-                    firestoreRepo.savePump(
-                        uid,
-                        PumpProfileDto(
-                            id = "pump_${updated.id}",
-                            deviceId = deviceId,
-                            name = updated.name,
-                            sector = updated.sector,
-                            baselineRms = updated.baselineRms.toDouble(),
-                            yellowMultiplier = updated.yellowThresholdMultiplier.toDouble(),
-                            redMultiplier = updated.redThresholdMultiplier.toDouble(),
-                            alertPhoneNumber = updated.alertPhoneNumber
-                        )
-                    )
-                }
             }
         }
     }

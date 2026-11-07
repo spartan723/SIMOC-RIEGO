@@ -5,7 +5,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
-import com.example.data.firebase.DeviceDto
+import com.example.data.supabase.StationCloudRecord
 import java.util.UUID
 
 class DeviceManager(private val context: Context) {
@@ -60,15 +60,14 @@ class DeviceManager(private val context: Context) {
         }
     }
 
-    fun toDeviceDto(): DeviceDto {
-        return DeviceDto(
+    fun toStationRecord(): StationCloudRecord {
+        return StationCloudRecord(
             id = deviceId,
             name = deviceName,
             hardwareModel = hardwareModel,
             batteryLevel = getBatteryLevel(),
             isActive = true,
-            lastSeen = null,
-            createdAt = null
+            lastSeen = ""
         )
     }
 }

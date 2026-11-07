@@ -20,13 +20,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -52,8 +54,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.PumpProfile
+import com.example.data.supabase.SupabaseClient
 import com.example.ui.theme.SemaforoGreen
-import com.example.ui.theme.SemaforoRed
 import com.example.ui.theme.SemaforoYellow
 
 @Composable
@@ -65,8 +67,10 @@ fun SettingsDialog(
     telegramChatInit: String,
     webhookUrlInit: String,
     autoSmsInit: Boolean,
+    supabaseUrlInit: String,
+    supabaseAnonKeyInit: String,
     onTestAutonomousDispatch: () -> Unit,
-    onSignOut: () -> Unit,
+    onTestSupabase: (url: String, key: String, onResult: (Boolean, String) -> Unit) -> Unit,
     onDismiss: () -> Unit,
     onSave: (
         name: String,
@@ -77,7 +81,9 @@ fun SettingsDialog(
         tgToken: String,
         tgChat: String,
         webhook: String,
-        autoSms: Boolean
+        autoSms: Boolean,
+        supabaseUrl: String,
+        supabaseAnonKey: String
     ) -> Unit
 ) {
     val context = LocalContext.current
@@ -93,6 +99,12 @@ fun SettingsDialog(
     var webhook by remember { mutableStateOf(webhookUrlInit) }
     var autoSms by remember { mutableStateOf(autoSmsInit) }
 
+    var supabaseUrl by remember { mutableStateOf(supabaseUrlInit) }
+    var supabaseAnonKey by remember { mutableStateOf(supabaseAnonKeyInit) }
+    var isTestingSupabase by remember { mutableStateOf(false) }
+    var supabaseTestFeedback by remember { mutableStateOf<String?>(null) }
+    var supabaseFeedbackIsSuccess by remember { mutableStateOf(false) }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Color(0xFF141F17),
@@ -101,14 +113,14 @@ fun SettingsDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     imageVector = Icons.Default.Settings,
-                    contentDescription = "Configuración",
+                    contentDescription = null,
                     tint = SemaforoGreen,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Configuración de Bomba y Estación",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    text = "Configuración y Red",
+                    style = MaterialTheme.typography.titleLarge,
                     color = Color.White
                 )
             }
@@ -120,7 +132,7 @@ fun SettingsDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Device ID Information Card
+                // Device Hardware Info
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -128,53 +140,148 @@ fun SettingsDialog(
                         .border(1.dp, Color(0xFF1E3A2B), RoundedCornerShape(8.dp))
                         .padding(10.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = "ID ÚNICO DE ESTACIÓN",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = Color(0xFFA7F3D0)
-                            )
-                            Text(
-                                text = deviceId,
-                                style = MaterialTheme.typography.titleSmall.copy(
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                color = Color.White
-                            )
-                            Text(
-                                text = deviceModel,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF94A3B8)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("ID de Dispositivo", deviceId)
-                                clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "ID de estación copiado al portapapeles", Toast.LENGTH_SHORT).show()
-                            }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.ContentCopy,
-                                contentDescription = "Copiar ID",
-                                tint = SemaforoGreen
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Fingerprint,
+                                    contentDescription = null,
+                                    tint = SemaforoGreen,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "ID Estación Único",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color(0xFFA7F3D0)
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("ID Estación", deviceId))
+                                    Toast.makeText(context, "ID copiado: $deviceId", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = "Copiar ID",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
                         }
+                        Text(
+                            text = deviceId,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = Color.White
+                        )
+                        Text(
+                            text = deviceModel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF94A3B8)
+                        )
                     }
                 }
+
+                // Supabase Cloud Section
+                Text(
+                    text = "Base de Datos Cloud (Supabase)",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFFA7F3D0)
+                )
+
+                OutlinedTextField(
+                    value = supabaseUrl,
+                    onValueChange = { supabaseUrl = it; supabaseTestFeedback = null },
+                    label = { Text("Supabase Project URL") },
+                    placeholder = { Text("https://xyzcompany.supabase.co") },
+                    colors = textFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = supabaseAnonKey,
+                    onValueChange = { supabaseAnonKey = it; supabaseTestFeedback = null },
+                    label = { Text("Supabase Anon Public Key") },
+                    placeholder = { Text("eyJhbGciOiJIUzI1NiIsInR5cCI6...") },
+                    colors = textFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            isTestingSupabase = true
+                            supabaseTestFeedback = null
+                            onTestSupabase(supabaseUrl, supabaseAnonKey) { success, msg ->
+                                isTestingSupabase = false
+                                supabaseFeedbackIsSuccess = success
+                                supabaseTestFeedback = msg
+                            }
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (supabaseFeedbackIsSuccess) SemaforoGreen else Color(0xFFA7F3D0)
+                        ),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (isTestingSupabase) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = SemaforoGreen)
+                        } else {
+                            Icon(imageVector = Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Probar", fontSize = 12.sp)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Supabase SQL", SupabaseClient.SCHEMA_SQL))
+                            Toast.makeText(context, "Script SQL copiado. Pégalo en SQL Editor de Supabase.", Toast.LENGTH_LONG).show()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8)),
+                        modifier = Modifier.weight(1.3f)
+                    ) {
+                        Icon(imageVector = Icons.Default.Cloud, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Copiar SQL", fontSize = 12.sp)
+                    }
+                }
+
+                supabaseTestFeedback?.let { feedback ->
+                    Text(
+                        text = feedback,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (supabaseFeedbackIsSuccess) SemaforoGreen else SemaforoYellow,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Pump Profile Section
+                Text(
+                    text = "Parámetros de la Bomba",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFFA7F3D0)
+                )
 
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Nombre de la Bomba") },
+                    label = { Text("Nombre del Equipo") },
                     colors = textFieldColors(),
                     modifier = Modifier.fillMaxWidth().testTag("input_pump_name")
                 )
@@ -184,15 +291,15 @@ fun SettingsDialog(
                     onValueChange = { sector = it },
                     label = { Text("Sector / Cuadro Agrícola") },
                     colors = textFieldColors(),
-                    modifier = Modifier.fillMaxWidth().testTag("input_pump_sector")
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 OutlinedTextField(
                     value = phone,
                     onValueChange = { phone = it },
-                    label = { Text("Teléfono de Alerta SMS") },
+                    label = { Text("Teléfono Alerta SMS") },
                     colors = textFieldColors(),
-                    modifier = Modifier.fillMaxWidth().testTag("input_alert_phone")
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 Row(
@@ -202,18 +309,27 @@ fun SettingsDialog(
                     OutlinedTextField(
                         value = yellowThresh,
                         onValueChange = { yellowThresh = it },
-                        label = { Text("Mult. Amarillo (x)") },
+                        label = { Text("Factor Advertencia (x Línea Base)") },
                         colors = textFieldColors(),
                         modifier = Modifier.weight(1f)
                     )
                     OutlinedTextField(
                         value = redThresh,
                         onValueChange = { redThresh = it },
-                        label = { Text("Mult. Rojo (x)") },
+                        label = { Text("Factor Crítico (x Línea Base)") },
                         colors = textFieldColors(),
                         modifier = Modifier.weight(1f)
                     )
                 }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Autonomous Dispatch Section
+                Text(
+                    text = "Canales de Despacho Centinela",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = Color(0xFFA7F3D0)
+                )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -221,7 +337,7 @@ fun SettingsDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Envío automático de SMS",
+                        text = "Envío Automático de SMS ante Peligro",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White
                     )
@@ -259,7 +375,7 @@ fun SettingsDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Button(
                     onClick = onTestAutonomousDispatch,
@@ -271,18 +387,6 @@ fun SettingsDialog(
                 ) {
                     Text("Probar Despacho Autónomo Ahora")
                 }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                OutlinedButton(
-                    onClick = onSignOut,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = SemaforoRed),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(imageVector = Icons.Default.ExitToApp, contentDescription = "Cerrar Sesión")
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Cerrar Sesión de Google")
-                }
             }
         },
         confirmButton = {
@@ -290,7 +394,7 @@ fun SettingsDialog(
                 onClick = {
                     val y = yellowThresh.toFloatOrNull() ?: 1.35f
                     val r = redThresh.toFloatOrNull() ?: 2.0f
-                    onSave(name, sector, phone, y, r, tgToken, tgChat, webhook, autoSms)
+                    onSave(name, sector, phone, y, r, tgToken, tgChat, webhook, autoSms, supabaseUrl, supabaseAnonKey)
                     onDismiss()
                 },
                 colors = ButtonDefaults.buttonColors(
@@ -304,7 +408,7 @@ fun SettingsDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancelar", color = Color(0xFF94A3B8))
+                Text("Cerrar", color = Color(0xFF94A3B8))
             }
         }
     )

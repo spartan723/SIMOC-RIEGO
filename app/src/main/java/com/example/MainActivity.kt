@@ -1,7 +1,6 @@
 package com.example
 
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -38,34 +37,27 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.auth.AuthManager
 import com.example.ui.AgroViewModel
 import com.example.ui.screens.CalibrationGuideScreen
 import com.example.ui.screens.DiagnosticsScreen
 import com.example.ui.screens.ImpactScreen
 import com.example.ui.screens.SemaforoScreen
 import com.example.ui.screens.SettingsDialog
-import com.example.ui.screens.SignInScreen
 import com.example.ui.theme.AgroVigiaTheme
 import com.example.ui.theme.SemaforoGreen
-import kotlinx.coroutines.launch
 
 enum class AppNavDestination(val label: String, val icon: ImageVector) {
     MONITOR("Monitor", Icons.Default.Sensors),
@@ -76,75 +68,28 @@ enum class AppNavDestination(val label: String, val icon: ImageVector) {
 
 class MainActivity : ComponentActivity() {
 
-    private val authManager by lazy { AuthManager() }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         setContent {
             AgroVigiaTheme(darkTheme = true) {
-                RootAuthGate(authManager = authManager)
+                MainApp()
             }
         }
-    }
-}
-
-@Composable
-fun RootAuthGate(authManager: AuthManager) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val currentUser by authManager.authStateFlow()
-        .collectAsStateWithLifecycle(initialValue = authManager.currentUser)
-
-    var isSigningIn by remember { mutableStateOf(false) }
-    var signInError by remember { mutableStateOf<String?>(null) }
-
-    val user = currentUser
-    if (user == null) {
-        val dummyDeviceManager = remember { com.example.device.DeviceManager(context) }
-        SignInScreen(
-            deviceId = dummyDeviceManager.deviceId,
-            deviceModel = dummyDeviceManager.hardwareModel,
-            isLoading = isSigningIn,
-            errorMessage = signInError,
-            onSignInClick = {
-                isSigningIn = true
-                signInError = null
-                coroutineScope.launch {
-                    val result = authManager.signInWithGoogle(context)
-                    isSigningIn = false
-                    result.onFailure { exception ->
-                        signInError = exception.localizedMessage ?: "Error al iniciar sesión con Google"
-                    }
-                }
-            }
-        )
-    } else {
-        MainApp(
-            authenticatedUserId = user.uid,
-            onSignOut = {
-                authManager.signOut()
-            }
-        )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainApp(
-    authenticatedUserId: String,
-    onSignOut: () -> Unit,
     viewModel: AgroViewModel = viewModel()
 ) {
     var currentDestination by remember { mutableStateOf(AppNavDestination.MONITOR) }
     var showSettingsDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(authenticatedUserId) {
-        viewModel.setAuthenticatedUser(authenticatedUserId)
-    }
-
     val currentPump by viewModel.currentPump.collectAsState()
+    val supabaseStatus by viewModel.supabaseStatus.collectAsState()
 
     // BackHandler: return to Monitor tab if in sub-screen
     BackHandler(enabled = currentDestination != AppNavDestination.MONITOR) {
@@ -258,14 +203,17 @@ fun MainApp(
             telegramChatInit = viewModel.telegramChatId,
             webhookUrlInit = viewModel.webhookUrl,
             autoSmsInit = viewModel.autoSmsEnabled,
+            supabaseUrlInit = viewModel.supabaseClient.supabaseUrl,
+            supabaseAnonKeyInit = viewModel.supabaseClient.supabaseAnonKey,
             onTestAutonomousDispatch = { viewModel.testAutonomousDispatch() },
-            onSignOut = {
-                showSettingsDialog = false
-                onSignOut()
+            onTestSupabase = { url, key, callback ->
+                viewModel.updateSupabaseCredentials(url, key)
+                viewModel.testSupabase(callback)
             },
             onDismiss = { showSettingsDialog = false },
-            onSave = { name, sector, phone, yellowThresh, redThresh, tgToken, tgChat, webhook, autoSms ->
+            onSave = { name, sector, phone, yellowThresh, redThresh, tgToken, tgChat, webhook, autoSms, sbUrl, sbKey ->
                 viewModel.updatePumpSettings(name, sector, phone, yellowThresh, redThresh, tgToken, tgChat, webhook, autoSms)
+                viewModel.updateSupabaseCredentials(sbUrl, sbKey)
             }
         )
     }
